@@ -2,6 +2,8 @@ require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
 const { joinVoiceChannel, getVoiceConnection, createAudioPlayer, createAudioResource, AudioPlayerStatus ,Events } = require('@discordjs/voice');
 const { join } = require('path');
+const { time } = require('console');
+const { channel } = require('diagnostics_channel');
 
 const client = new Client({
     intents: [
@@ -18,6 +20,8 @@ const player = createAudioPlayer();
 
 let queue = [];
 
+let channelId;
+
 client.once('ready', () => {
     console.log(`Bot ist online! Eingeloggt als ${client.user.tag}`);
 });
@@ -33,16 +37,25 @@ player.on(AudioPlayerStatus.Playing, () => {
     console.log('The audio player has started playing!');
 });
 
-player.on(AudioPlayerStatus.Idle, () => {
-    console.log('The audio player is now idle!');
+player.on(AudioPlayerStatus.Idle, async () => {
     if(queue.length > 0) {
         resource = createAudioResource(join(__dirname, 'music', `${queue.shift()}.mp3`));
         player.play(resource);
+    } else {
+        const channel = await client.channels.fetch(channelId);
+        channel.send('Die Warteschlange ist leer.');
+        setTimeout(() => {
+                connection.destroy();
+                player.stop();
+            }, 60000);
     }
 });
 
 client.on('messageCreate', message => {
     if (message.author.bot) return;
+    if(!message.content.startsWith('!')) return;
+
+    channelId = message.channel.id;
 
     switch (message.content.split(" ")[0]) {
         case '!join':   if (!message.member.voice.channel) {
@@ -81,12 +94,16 @@ client.on('messageCreate', message => {
                                 adapterCreator: message.guild.voiceAdapterCreator, 
                             });
                             connection.subscribe(player);
-                            console.log(message.content.split(" ")[1]);
                             resource = createAudioResource(join(__dirname, 'music', `${message.content.split(" ")[1]}.mp3`));
                             player.stop();
                             player.play(resource);
                         }
                         break;
+        case '!skip':   if (player.state.status === AudioPlayerStatus.Playing) {
+                            player.stop();
+                        } else {
+                            message.reply('Es wird gerade nichts abgespielt!');
+                        }
         }
 });
 
