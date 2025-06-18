@@ -16,6 +16,8 @@ let resource = createAudioResource(join(__dirname, 'music', 'test.mp3'));
 
 const player = createAudioPlayer();
 
+let queue = [];
+
 client.once('ready', () => {
     console.log(`Bot ist online! Eingeloggt als ${client.user.tag}`);
 });
@@ -33,6 +35,10 @@ player.on(AudioPlayerStatus.Playing, () => {
 
 player.on(AudioPlayerStatus.Idle, () => {
     console.log('The audio player is now idle!');
+    if(queue.length > 0) {
+        resource = createAudioResource(join(__dirname, 'music', `${queue.shift()}.mp3`));
+        player.play(resource);
+    }
 });
 
 client.on('messageCreate', message => {
@@ -65,6 +71,9 @@ client.on('messageCreate', message => {
                         break;
         case '!play':   if (!message.member.voice.channel) {
                             return message.reply('Du musst in einem Sprachkanal sein, um diesen Befehl zu verwenden!'); 
+                        } else if (player.state.status === AudioPlayerStatus.Playing) {
+                            queue.push(message.content.split(" ")[1]);
+                            message.reply(`Die Datei ${message.content.split(" ")[1]} wurde zur Warteschlange hinzugefügt.`);
                         } else {
                             connection = joinVoiceChannel({
                                 channelId: message.member.voice.channel.id,
