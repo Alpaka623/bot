@@ -12,8 +12,7 @@ const client = new Client({
     ]
 });
 
-const resource = createAudioResource(join(__dirname, 'music', 'test.mp3'));
-console.log(resource)
+let resource = createAudioResource(join(__dirname, 'music', 'test.mp3'));
 
 const player = createAudioPlayer();
 
@@ -39,7 +38,7 @@ player.on(AudioPlayerStatus.Idle, () => {
 client.on('messageCreate', message => {
     if (message.author.bot) return;
 
-    switch (message.content) {
+    switch (message.content.split(" ")[0]) {
         case '!join':   if (!message.member.voice.channel) {
                             return message.reply('Du musst in einem Sprachkanal sein, um diesen Befehl zu verwenden!'); 
                         } else {
@@ -58,6 +57,25 @@ client.on('messageCreate', message => {
                             player.stop();
                         } else {
                             message.reply('Ich bin in keinem Sprachkanal!');
+                        }
+                        break;
+        case '!pause':  player.pause();
+                        break;
+        case '!resume': player.unpause();
+                        break;
+        case '!play':   if (!message.member.voice.channel) {
+                            return message.reply('Du musst in einem Sprachkanal sein, um diesen Befehl zu verwenden!'); 
+                        } else {
+                            connection = joinVoiceChannel({
+                                channelId: message.member.voice.channel.id,
+                                guildId: message.guild.id, 
+                                adapterCreator: message.guild.voiceAdapterCreator, 
+                            });
+                            connection.subscribe(player);
+                            console.log(message.content.split(" ")[1]);
+                            resource = createAudioResource(join(__dirname, 'music', `${message.content.split(" ")[1]}.mp3`));
+                            player.stop();
+                            player.play(resource);
                         }
                         break;
         }
