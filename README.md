@@ -1,6 +1,6 @@
 # Einfacher Discord Musik-Bot
 
-Dies ist ein einfacher, mit Node.js und `discord.js` erstellter Discord-Bot, der Sprachkanälen beitreten und lokale Audiodateien aus einem Verzeichnis abspielen kann. Er verfügt über eine grundlegende Warteschlange (Queue) und Steuerungsbefehle.
+Dies ist ein einfacher, mit `Node.js` und `discord.js` erstellter Discord-Bot, der Sprachkanälen beitreten und lokale Audiodateien aus einem Verzeichnis abspielen kann. Er verfügt über eine grundlegende Warteschlange (Queue) und Steuerungsbefehle.
 
 ## Features
 
