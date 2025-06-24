@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { joinVoiceChannel, getVoiceConnection, createAudioPlayer, createAudioResource, AudioPlayerStatus ,Events } = require('@discordjs/voice');
 const { join } = require('path');
 const { time } = require('console');
@@ -14,6 +14,27 @@ const client = new Client({
         GatewayIntentBits.GuildVoiceStates   
     ]
 });
+
+function createStyledEmbed(title, description, color = 0x3498db) {
+  return new EmbedBuilder()
+    .setColor(color)
+    .setTitle(title)
+    .setDescription(description)
+    .setTimestamp()
+}
+
+const row = new ActionRowBuilder()
+    .addComponents(
+        new ButtonBuilder()
+            .setCustomId('queue_previous') // Eindeutige ID für den Listener
+            .setLabel('◀️ Zurück')
+            .setStyle(ButtonStyle.Primary), // Farbe des Knopfes
+            
+        new ButtonBuilder()
+            .setCustomId('queue_next')
+            .setLabel('Weiter ▶️')
+            .setStyle(ButtonStyle.Primary)
+    );
 
 let resource = createAudioResource(join(__dirname, 'music', 'test.mp3'));
 
@@ -63,7 +84,6 @@ client.on('messageCreate', message => {
                             return message.reply('Du musst in einem Sprachkanal sein, um diesen Befehl zu verwenden!');
                         }
 
-                        // Wir erstellen eine sofort-ausführende async Funktion (IIFE)
                         (async () => {
                             const musicDir = join(__dirname, 'music');
 
@@ -82,7 +102,6 @@ client.on('messageCreate', message => {
 
                                 const existingConnection = getVoiceConnection(message.guild.id);
                                 
-                                // Diese Hilfsfunktion startet die Wiedergabe, um Code-Wiederholung zu vermeiden
                                 const startPlaying = () => {
                                     if (queue.length > 0) {
                                         const nextSong = queue.shift();
@@ -96,7 +115,6 @@ client.on('messageCreate', message => {
                                     }
                                 };
 
-                                // Wenn der Bot noch nicht verbunden ist, erstelle die Verbindung
                                 if (!existingConnection) {
                                     const connection = joinVoiceChannel({
                                         channelId: message.member.voice.channel.id,
@@ -105,12 +123,10 @@ client.on('messageCreate', message => {
                                         selfDeaf: false
                                     });
                                     connection.subscribe(player);
-                                    startPlaying(); // Starte die Wiedergabe nach dem Verbinden
+                                    startPlaying(); 
                                 } else if (player.state.status === AudioPlayerStatus.Idle) {
-                                    // Wenn der Bot verbunden aber untätig ist, starte die Wiedergabe
                                     startPlaying();
                                 }
-                                // Wenn der Bot bereits spielt, wurden die Lieder nur zur Queue hinzugefügt. Das ist korrekt.
 
                             } catch (error) {
                                 console.error("Fehler im !all-Befehl:", error);
@@ -135,7 +151,7 @@ client.on('messageCreate', message => {
         case '!play':   if (!message.member.voice.channel) {
                             return message.reply('Du musst in einem Sprachkanal sein, um diesen Befehl zu verwenden!'); 
                         } else if (player.state.status === AudioPlayerStatus.Playing) {
-                            queue.push(message.content.split(" ")[1]);
+                            queue.push(message.content.split(' ').slice(1).join(' ').toLowerCase().replaceAll(' ', '-'));
                             message.reply(`Die Datei ${message.content.split(' ').slice(1).join(' ')} wurde zur Warteschlange hinzugefügt.`);
                         } else {
                             connection = joinVoiceChannel({
@@ -156,9 +172,16 @@ client.on('messageCreate', message => {
                         }
                         break;
         case '!queue':  if (queue.length > 0) {
-                            message.reply(`Aktuelle Warteschlange: ${queue.join(', ')}`);
+                            const queueString = queue
+                                .map((song, index) => {
+                                    const formattedSong = song.replaceAll('-', ' ');
+                                    return `**${index + 1}.** ${formattedSong}`;
+                                })
+                                .join('\n');
+                            const embed = createStyledEmbed('Warteschlange', queueString);
+                            message.reply({ embeds: [embed]});
                         } else {
-                            message.reply('Die Warteschlange ist leer.');
+                            message.reply({embeds: [createStyledEmbed('Warteschlange', 'Die Warteschlange ist leer.', 0xe74c3c)]});
                         }
                         break;
         case '!clear':  queue = [];
