@@ -1,10 +1,13 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require('discord.js');
-const { joinVoiceChannel, getVoiceConnection, createAudioPlayer, createAudioResource, AudioPlayerStatus ,Events } = require('@discordjs/voice');
+const { joinVoiceChannel, getVoiceConnection, createAudioPlayer, createAudioResource, AudioPlayerStatus ,Events, StreamType } = require('@discordjs/voice');
 const { join } = require('path');
 const { time } = require('console');
 const { channel } = require('diagnostics_channel');
 const fs = require('fs').promises;
+const play = require('play-dl');
+const ytdl = require('@distube/ytdl-core');
+
 
 const client = new Client({
     intents: [
@@ -51,8 +54,8 @@ client.once('ready', () => {
 let connection;
 
 player.on('error', error => {
-	console.error(`Error: ${error.message} with resource ${error.resource.metadata.title}`);
-	player.play(getNextResource());
+    console.error(`Fehler im AudioPlayer: ${error.message}`);
+    player.emit(AudioPlayerStatus.Idle);
 });
 
 player.on(AudioPlayerStatus.Playing, () => {
@@ -60,17 +63,67 @@ player.on(AudioPlayerStatus.Playing, () => {
 });
 
 player.on(AudioPlayerStatus.Idle, async () => {
-    let name = queue[0].replaceAll('-', ' ');
-    if(queue.length > 0) {
-        resource = createAudioResource(join(__dirname, 'music', `${queue.shift()}.mp3`), {metadata: { title: name }});
-        player.play(resource);
-    } else {
-        const channel = await client.channels.fetch(channelId);
-        channel.send({ embeds: [createStyledEmbed('Warteschlange', 'Die Warteschlange ist leer. Ich werde in 60s den Sprachkanal verlassen.', 0xe74c3c)], components: [] });
-        setTimeout(() => {
-                connection.destroy();
-                player.stop();
+    if (queue.length === 0) {
+        try {
+            const channel = await client.channels.fetch(channelId);
+            await channel.send({ embeds: [createStyledEmbed('Warteschlange', 'Die Warteschlange ist leer. Ich verlasse den Sprachkanal in 60s.', 0xe74c3c)] });
+            
+            setTimeout(() => {
+                const connection = getVoiceConnection(channel.guild.id);
+                if (connection) {
+                    connection.destroy();
+                }
             }, 60000);
+        } catch (error) {
+            console.error("Fehler im Idle-Handler bei leerer Queue:", error);
+        }
+        return;
+    }
+
+    const nextSong = queue.shift();
+
+    if (!nextSong) {
+        console.error("Ungültiges 'undefined' Objekt in der Queue gefunden. Überspringe.");
+        return player.emit(AudioPlayerStatus.Idle);
+    }
+
+    try {
+        let resource;
+
+        if (nextSong.type === 'youtube') {
+            if (!nextSong.url) {
+                throw new Error('YouTube-Songobjekt in der Queue hat keine URL.');
+            }
+
+            const stream = ytdl(nextSong.url, {
+                filter: 'audioonly',
+                quality: 'highestaudio',
+                highWaterMark: 1 << 25,
+            });
+
+            resource = createAudioResource(stream, {
+                inputType: StreamType.Arbitrary,
+                metadata: { title: nextSong.title },
+                inlineVolume: true
+            });
+
+        } else { // Lokale Datei
+            const filePath = join(__dirname, 'music', `${nextSong.path}.mp3`);
+            resource = createAudioResource(filePath, {
+                metadata: { title: nextSong.title },
+                inlineVolume: true
+            });
+        }
+
+        resource.volume.setVolume(0.4);
+        
+        player.play(resource);
+
+    } catch (error) {
+        console.error(`Fehler beim Abspielen von '${nextSong.title}':`, error);
+        const channel = await client.channels.fetch(channelId);
+        await channel.send({ embeds: [createStyledEmbed('Fehler', `Konnte **${nextSong.title}** nicht abspielen. Überspringe...`, 0xe74c3c)] });
+        player.emit(AudioPlayerStatus.Idle); 
     }
 });
 
@@ -81,40 +134,34 @@ client.on('messageCreate', message => {
     channelId = message.channel.id;
 
     switch (message.content.split(" ")[0]) {
-        case '!all':    if (!message.member.voice.channel) {
-                            return message.reply({ embeds: [createStyledEmbed('Fehler', 'Du musst in einem Sprachkanal sein, um Musik abzuspielen!', 0xe74c3c)] });
+        case '!all': {                        if (!message.member.voice.channel) {
+                            return message.reply({ embeds: [createStyledEmbed('Fehler', 'Du musst in einem Sprachkanal sein.', 0xe74c3c)] });
                         }
 
                         (async () => {
-                            const musicDir = join(__dirname, 'music');
-
                             try {
+                                const musicDir = join(__dirname, 'music');
                                 const files = await fs.readdir(musicDir);
-                                const songs = files
-                                    .filter(file => file.endsWith('.mp3'))
-                                    .map(file => file.slice(0, -4));
 
-                                if (songs.length === 0) {
-                                    return message.reply({ embeds: [createStyledEmbed('Fehler', 'Es wurden keine Musikdateien gefunden.', 0xe74c3c)] });
+                                const songObjects = files
+                                    .filter(file => file.endsWith('.mp3'))
+                                    .map(file => {
+                                        const fileName = file.slice(0, -4);
+                                        return {
+                                            type: 'local',
+                                            title: fileName.replaceAll('-', ' '),
+                                            path: fileName
+                                        };
+                                    });
+
+                                if (songObjects.length === 0) {
+                                    return message.reply({ embeds: [createStyledEmbed('Fehler', 'Ich konnte keine Lieder im `music`-Ordner finden.', 0xe74c3c)] });
                                 }
 
-                                queue.push(...songs);
-                                await message.reply({ embeds: [createStyledEmbed('Musik geladen', `Ich habe **${songs.length}** Lieder geladen.`)] });
-
-                                const existingConnection = getVoiceConnection(message.guild.id);
+                                queue.push(...songObjects);
+                                await message.reply({ embeds: [createStyledEmbed('Musik geladen', `Ich habe **${songObjects.length}** Lieder zur Warteschlange hinzugefügt.`)] });
                                 
-                                const startPlaying = () => {
-                                    if (queue.length > 0) {
-                                        const nextSong = queue.shift();
-                                        const resource = createAudioResource(join(musicDir, `${nextSong}.mp3`), {
-                                            inlineVolume: true
-                                        });
-                                        resource.volume.setVolume(0.4);
-                                        player.play(resource);
-                                        // Wir müssen nicht auf diese Nachricht warten
-                                        message.channel.send(`Spiele jetzt: ${nextSong}`);
-                                    }
-                                };
+                                const existingConnection = getVoiceConnection(message.guild.id);
 
                                 if (!existingConnection) {
                                     const connection = joinVoiceChannel({
@@ -124,18 +171,19 @@ client.on('messageCreate', message => {
                                         selfDeaf: false
                                     });
                                     connection.subscribe(player);
-                                    startPlaying(); 
-                                } else if (player.state.status === AudioPlayerStatus.Idle) {
-                                    startPlaying();
+                                }
+                                
+                                if (player.state.status === AudioPlayerStatus.Idle) {
+                                    player.emit(AudioPlayerStatus.Idle);
                                 }
 
                             } catch (error) {
                                 console.error("Fehler im !all-Befehl:", error);
-                                message.reply({ embeds: [createStyledEmbed('Fehler', 'Ein Fehler ist aufgetreten, während ich die Musikdateien geladen habe.', 0xe74c3c)] });
+                                message.reply({ embeds: [createStyledEmbed('Fehler', 'Ein Fehler ist aufgetreten.', 0xe74c3c)] });
                             }
                         })();
-
                         break;
+                    }
         case '!leave':  connection = getVoiceConnection(message.guild.id);
                         if (connection) {
                             queue = [];
@@ -149,25 +197,78 @@ client.on('messageCreate', message => {
                         break;
         case '!resume': player.unpause();
                         break;
-        case '!play':   if (!message.member.voice.channel) {
-                            return message.reply({ embeds: [createStyledEmbed('Fehler', 'Du musst in einem Sprachkanal sein, um Musik abzuspielen!', 0xe74c3c)] }); 
-                        } else if (player.state.status === AudioPlayerStatus.Playing) {
-                            queue.push(message.content.split(' ').slice(1).join(' ').toLowerCase().replaceAll(' ', '-'));
-                            message.reply({ embeds: [createStyledEmbed('Warteschlange', `**${message.content.split(' ').slice(1).join(' ')}** wurde zur Warteschlange hinzugefügt.`)] });
-                        } else {
-                            connection = joinVoiceChannel({
+        case '!play':   (async () => {
+                        const songQuery = message.content.split(' ').slice(1).join(' ');
+                        if (!songQuery) {
+                            return message.reply({ embeds: [createStyledEmbed('Fehler', 'Du musst einen Songnamen oder YouTube-Link angeben.', 0xe74c3c)] });
+                        }
+
+                        if (!message.member.voice.channel) {
+                            return message.reply({ embeds: [createStyledEmbed('Fehler', 'Du musst in einem Sprachkanal sein.', 0xe74c3c)] });
+                        }
+
+                        const startPlayback = async () => {
+                            if (player.state.status === AudioPlayerStatus.Idle && queue.length > 0) {
+                                player.emit(AudioPlayerStatus.Idle);
+                            }
+                        };
+
+                        // --- Start der Suchlogik ---
+                        const formattedFileName = songQuery.toLowerCase().replaceAll(' ', '-');
+                        const localFilePath = join(__dirname, 'music', `${formattedFileName}.mp3`);
+
+                        try {
+                            await fs.access(localFilePath);
+
+                            const songObject = {
+                                type: 'local',
+                                title: songQuery,
+                                path: formattedFileName
+                            };
+                            queue.push(songObject);
+                            await message.reply({ embeds: [createStyledEmbed('Zur Warteschlange hinzugefügt (Lokal)', `**${songObject.title}** wurde hinzugefügt.`)] });
+
+                        } catch (error) {
+                            try {
+                                const replyMessage = await message.reply({ embeds: [createStyledEmbed('Suche...', `Lokale Datei nicht gefunden. Suche auf YouTube nach: **${songQuery}**`)] });
+                                
+                                const searchResults = await play.search(songQuery, { limit: 1, source: { youtube: 'video' } });
+                                if (searchResults.length === 0) {
+                                    return replyMessage.edit({ embeds: [createStyledEmbed('Fehler', 'Ich konnte auf YouTube nichts finden.', 0xe74c3c)] });
+                                }
+
+                                const video = searchResults[0];
+                                const songObject = {
+                                    type: 'youtube',
+                                    title: video.title,
+                                    url: video.url
+                                };
+                                console.log("Gefundenes YouTube-Video:", songObject);
+                                queue.push(songObject);
+                                
+                                await replyMessage.edit({ embeds: [createStyledEmbed('Zur Warteschlange hinzugefügt (YouTube)', `**${songObject.title}** wurde hinzugefügt.`)] });
+
+                            } catch (searchError) {
+                                console.error("Fehler bei der YouTube-Suche:", searchError);
+                                await message.reply({ embeds: [createStyledEmbed('Fehler', 'Bei der YouTube-Suche ist ein Fehler aufgetreten.', 0xe74c3c)] });
+                                return;
+                            }
+                        }
+
+                        const existingConnection = getVoiceConnection(message.guild.id);
+
+                        if (!existingConnection) {
+                            const connection = joinVoiceChannel({
                                 channelId: message.member.voice.channel.id,
-                                guildId: message.guild.id, 
-                                adapterCreator: message.guild.voiceAdapterCreator, 
+                                guildId: message.guild.id,
+                                adapterCreator: message.guild.voiceAdapterCreator,
+                                selfDeaf: false
                             });
                             connection.subscribe(player);
-                            resource = createAudioResource(
-                                join(__dirname, 'music', `${message.content.split(' ').slice(1).join(' ').toLowerCase().replaceAll(' ', '-')}.mp3`),
-                                { metadata: { title: message.content.split(' ').slice(1).join(' ') } }
-                            );
-                            player.stop();
-                            player.play(resource);
                         }
+                        
+                        startPlayback();
+                        })()
                         break;
         case '!skip':   if (player.state.status === AudioPlayerStatus.Playing) {
                             player.stop();
@@ -175,18 +276,30 @@ client.on('messageCreate', message => {
                             message.reply({ embeds: [createStyledEmbed('Fehler', 'Es wird gerade keine Musik abgespielt.', 0xe74c3c)] });
                         }
                         break;
-        case '!queue':  if (queue.length > 0) {
-                            const queueString = queue
-                                .map((song, index) => {
-                                    const formattedSong = song.replaceAll('-', ' ');
-                                    return `**${index + 1}.** ${formattedSong}`;
-                                })
-                                .join('\n');
-                            message.reply({ embeds: [createStyledEmbed('Warteschlange', queueString)]});
-                        } else {
-                            message.reply({embeds: [createStyledEmbed('Warteschlange', 'Die Warteschlange ist leer.', 0xe74c3c)]});
+        case '!queue': {
+                        if (queue.length === 0) {
+                            return message.reply({ embeds: [createStyledEmbed('Warteschlange', 'Die Warteschlange ist derzeit leer.', 0xe74c3c)] });
                         }
+
+                        const itemsToShow = 60;
+                        const queueToShow = queue.slice(0, itemsToShow);
+
+                        const queueString = queueToShow
+                            .map((song, index) => `**${index + 1}.** ${song.title}`)
+                            .join('\n');
+
+                        const embed = createStyledEmbed(
+                            `Warteschlange (${queue.length} Songs)`,
+                            queueString
+                        );
+
+                        if (queue.length > itemsToShow) {
+                            embed.setFooter({ text: `... und ${queue.length - itemsToShow} weitere Lieder.` });
+                        }
+
+                        message.reply({ embeds: [embed] });
                         break;
+                    }
         case '!clear':  queue = [];
                         message.reply({ embeds: [createStyledEmbed('Warteschlange', 'Die Warteschlange wurde geleert.')] });
                         break;
@@ -197,6 +310,7 @@ client.on('messageCreate', message => {
                             }
                             message.reply({ embeds: [createStyledEmbed('Warteschlange', 'Die Warteschlange wurde gemischt.')] });
                         }
+                        break;
         case '!showall':(async () => {
                             try {
                                 const allFiles = await fs.readdir(join(__dirname, 'music'));
@@ -254,6 +368,53 @@ client.on('messageCreate', message => {
                         } else {
                             message.reply({ embeds: [createStyledEmbed('Aktuelles Lied', 'Es wird gerade keine Musik abgespielt.', 0xe74c3c)] });
                         }
+                        break;
+        case '!testyt':
+                        // Nur zum Testen, wir halten es simpel.
+                        if (!message.member.voice.channel) {
+                            return message.reply('Bitte sei für diesen Test in einem Sprachkanal.');
+                        }
+
+                        (async () => {
+                            try {
+                                console.log("--- START TESTYT ---");
+                                const testUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'; // Eine feste, bekannte URL
+                                
+                                // 1. Verbindung herstellen
+                                const connection = joinVoiceChannel({
+                                    channelId: message.member.voice.channel.id,
+                                    guildId: message.guild.id,
+                                    adapterCreator: message.guild.voiceAdapterCreator,
+                                    selfDeaf: false
+                                });
+                                
+                                // 2. Stream von play-dl holen
+                                console.log(`Versuche, Stream für feste URL zu holen: ${testUrl}`);
+                                const stream = await play.stream(testUrl);
+                                console.log("Stream-Objekt von play-dl erhalten:", stream);
+
+                                // 3. Ressource erstellen
+                                const resource = createAudioResource(stream.stream, {
+                                    inputType: stream.type
+                                });
+                                console.log("AudioResource erfolgreich erstellt.");
+
+                                // 4. Player erstellen und subscriben
+                                const player = createAudioPlayer();
+                                connection.subscribe(player);
+                                console.log("Player subscribed.");
+
+                                // 5. Abspielen
+                                player.play(resource);
+                                console.log("player.play() aufgerufen. Wiedergabe sollte starten.");
+
+                                await message.reply('Teste Wiedergabe mit einer festen URL...');
+
+                            } catch (error) {
+                                console.error("--- FEHLER IM TESTYT BEFEHL ---", error);
+                                message.reply(`Der isolierte Test ist fehlgeschlagen. Fehler: ${error.message}`);
+                            }
+                        })();
                         break;
         case '!help':   message.reply({ embeds: [createStyledEmbed('Hilfe', 'Hier sind die verfügbaren Befehle:\n\n' +
                             '**!all** - Alle Lieder im `music`-Ordner abspielen\n' +
