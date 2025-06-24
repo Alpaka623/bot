@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require('discord.js');
 const { joinVoiceChannel, getVoiceConnection, createAudioPlayer, createAudioResource, AudioPlayerStatus ,Events } = require('@discordjs/voice');
 const { join } = require('path');
 const { time } = require('console');
@@ -60,12 +60,13 @@ player.on(AudioPlayerStatus.Playing, () => {
 });
 
 player.on(AudioPlayerStatus.Idle, async () => {
+    let name = queue[0].replaceAll('-', ' ');
     if(queue.length > 0) {
-        resource = createAudioResource(join(__dirname, 'music', `${queue.shift()}.mp3`));
+        resource = createAudioResource(join(__dirname, 'music', `${queue.shift()}.mp3`), {metadata: { title: name }});
         player.play(resource);
     } else {
         const channel = await client.channels.fetch(channelId);
-        channel.send('Die Warteschlange ist leer.');
+        channel.send({ embeds: [createStyledEmbed('Warteschlange', 'Die Warteschlange ist leer. Ich werde in 60s den Sprachkanal verlassen.', 0xe74c3c)], components: [] });
         setTimeout(() => {
                 connection.destroy();
                 player.stop();
@@ -81,7 +82,7 @@ client.on('messageCreate', message => {
 
     switch (message.content.split(" ")[0]) {
         case '!all':    if (!message.member.voice.channel) {
-                            return message.reply('Du musst in einem Sprachkanal sein, um diesen Befehl zu verwenden!');
+                            return message.reply({ embeds: [createStyledEmbed('Fehler', 'Du musst in einem Sprachkanal sein, um Musik abzuspielen!', 0xe74c3c)] });
                         }
 
                         (async () => {
@@ -94,11 +95,11 @@ client.on('messageCreate', message => {
                                     .map(file => file.slice(0, -4));
 
                                 if (songs.length === 0) {
-                                    return message.reply('Ich habe keine Lieder im `music`-Ordner gefunden.');
+                                    return message.reply({ embeds: [createStyledEmbed('Fehler', 'Es wurden keine Musikdateien gefunden.', 0xe74c3c)] });
                                 }
 
                                 queue.push(...songs);
-                                await message.reply(`${songs.length} Lieder wurden zur Warteschlange hinzugefügt!`);
+                                await message.reply({ embeds: [createStyledEmbed('Musik geladen', `Ich habe **${songs.length}** Lieder geladen.`)] });
 
                                 const existingConnection = getVoiceConnection(message.guild.id);
                                 
@@ -130,7 +131,7 @@ client.on('messageCreate', message => {
 
                             } catch (error) {
                                 console.error("Fehler im !all-Befehl:", error);
-                                message.reply('Es gab einen Fehler beim Verarbeiten deines Befehls.');
+                                message.reply({ embeds: [createStyledEmbed('Fehler', 'Ein Fehler ist aufgetreten, während ich die Musikdateien geladen habe.', 0xe74c3c)] });
                             }
                         })();
 
@@ -141,7 +142,7 @@ client.on('messageCreate', message => {
                             connection.destroy();
                             player.stop();
                         } else {
-                            message.reply('Ich bin in keinem Sprachkanal!');
+                            message.reply({ embeds: [createStyledEmbed('Fehler', 'Ich bin in keinem Sprachkanal!', 0xe74c3c)] });
                         }
                         break;
         case '!pause':  player.pause();
@@ -149,10 +150,10 @@ client.on('messageCreate', message => {
         case '!resume': player.unpause();
                         break;
         case '!play':   if (!message.member.voice.channel) {
-                            return message.reply('Du musst in einem Sprachkanal sein, um diesen Befehl zu verwenden!'); 
+                            return message.reply({ embeds: [createStyledEmbed('Fehler', 'Du musst in einem Sprachkanal sein, um Musik abzuspielen!', 0xe74c3c)] }); 
                         } else if (player.state.status === AudioPlayerStatus.Playing) {
                             queue.push(message.content.split(' ').slice(1).join(' ').toLowerCase().replaceAll(' ', '-'));
-                            message.reply(`Die Datei ${message.content.split(' ').slice(1).join(' ')} wurde zur Warteschlange hinzugefügt.`);
+                            message.reply({ embeds: [createStyledEmbed('Warteschlange', `**${message.content.split(' ').slice(1).join(' ')}** wurde zur Warteschlange hinzugefügt.`)] });
                         } else {
                             connection = joinVoiceChannel({
                                 channelId: message.member.voice.channel.id,
@@ -160,7 +161,10 @@ client.on('messageCreate', message => {
                                 adapterCreator: message.guild.voiceAdapterCreator, 
                             });
                             connection.subscribe(player);
-                            resource = createAudioResource(join(__dirname, 'music', `${message.content.split(' ').slice(1).join(' ').toLowerCase().replaceAll(' ', '-')}.mp3`));
+                            resource = createAudioResource(
+                                join(__dirname, 'music', `${message.content.split(' ').slice(1).join(' ').toLowerCase().replaceAll(' ', '-')}.mp3`),
+                                { metadata: { title: message.content.split(' ').slice(1).join(' ') } }
+                            );
                             player.stop();
                             player.play(resource);
                         }
@@ -168,7 +172,7 @@ client.on('messageCreate', message => {
         case '!skip':   if (player.state.status === AudioPlayerStatus.Playing) {
                             player.stop();
                         } else {
-                            message.reply('Es wird gerade nichts abgespielt!');
+                            message.reply({ embeds: [createStyledEmbed('Fehler', 'Es wird gerade keine Musik abgespielt.', 0xe74c3c)] });
                         }
                         break;
         case '!queue':  if (queue.length > 0) {
@@ -178,22 +182,94 @@ client.on('messageCreate', message => {
                                     return `**${index + 1}.** ${formattedSong}`;
                                 })
                                 .join('\n');
-                            const embed = createStyledEmbed('Warteschlange', queueString);
-                            message.reply({ embeds: [embed]});
+                            message.reply({ embeds: [createStyledEmbed('Warteschlange', queueString)]});
                         } else {
                             message.reply({embeds: [createStyledEmbed('Warteschlange', 'Die Warteschlange ist leer.', 0xe74c3c)]});
                         }
                         break;
         case '!clear':  queue = [];
-                        message.reply('Die Warteschlange wurde geleert.');
+                        message.reply({ embeds: [createStyledEmbed('Warteschlange', 'Die Warteschlange wurde geleert.')] });
                         break;
         case '!shuffle': if (queue.length > 0) {
                             for (let i = queue.length - 1; i > 0; i--) {
                                 const j = Math.floor(Math.random() * (i + 1));
                                 [queue[i], queue[j]] = [queue[j], queue[i]];
                             }
-                            message.reply('Die Warteschlange wurde gemischt.');
+                            message.reply({ embeds: [createStyledEmbed('Warteschlange', 'Die Warteschlange wurde gemischt.')] });
                         }
+        case '!showall':(async () => {
+                            try {
+                                const allFiles = await fs.readdir(join(__dirname, 'music'));
+                                const songListString = allFiles
+                                    .filter(file => file.endsWith('.mp3'))
+                                    .map((song, index) => {
+                                        const formattedSong = song.slice(0, -4).replaceAll('-', ' ');
+                                        return `**${index + 1}.** ${formattedSong}`;
+                                    })
+                                    .join('\n');
+
+                                if (!songListString) {
+                                    return message.reply({ embeds: [createStyledEmbed('Alle Lieder', 'Ich habe keine Lieder im `music`-Ordner gefunden.', 0xe74c3c)] });
+                                }
+
+                                message.reply({ embeds: [createStyledEmbed('Alle Lieder', songListString)] });
+
+                            } catch (error) {
+                                console.error("Fehler im !showall-Befehl:", error);
+                                message.reply({ embeds: [createStyledEmbed('Fehler', 'Konnte die Songliste nicht erstellen.', 0xe74c3c)] });
+                            }
+                        })(); 
+                        break;
+
+        case '!export': (async () => {
+                            try {
+                            let songName = message.content.split(' ').slice(1).join(' ');
+                            if(songName === 'current') songName = player.state.resource.metadata.title;
+                            console.log("Songname:", songName);
+                            if (!songName) {
+                                return message.reply({ embeds: [createStyledEmbed('Fehler', 'Du musst einen Songnamen angeben.', 0xe74c3c)] });
+                            }
+
+                            const fileName = songName.toLowerCase().replaceAll(' ', '-');
+                            const filePath = join(__dirname, 'music', `${fileName}.mp3`);
+
+                            await fs.access(filePath);
+
+                            const attachment = new AttachmentBuilder(filePath, { name: `${fileName}.mp3` });
+
+                            await message.reply({
+                                files: [attachment]
+                            });
+
+                            } catch (error) {
+                                console.error("Fehler im !export-Befehl:", error);
+                                message.reply({ embeds: [createStyledEmbed('Fehler', 'Ich konnte diese Datei nicht finden. Stelle sicher, dass der Name korrekt ist.', 0xe74c3c)] });
+                            }
+                        })();
+                        break;
+        case '!current': if (player.state.status === AudioPlayerStatus.Playing) {
+                            const currentResource = player.state.resource;
+                            const currentTitle = currentResource.metadata.title;
+                            message.reply({ embeds: [createStyledEmbed('Aktuelles Lied', `Ich spiele gerade: **${currentTitle}**`)] });
+                        } else {
+                            message.reply({ embeds: [createStyledEmbed('Aktuelles Lied', 'Es wird gerade keine Musik abgespielt.', 0xe74c3c)] });
+                        }
+                        break;
+        case '!help':   message.reply({ embeds: [createStyledEmbed('Hilfe', 'Hier sind die verfügbaren Befehle:\n\n' +
+                            '**!all** - Alle Lieder im `music`-Ordner abspielen\n' +
+                            '**!leave** - Verlasse den Sprachkanal und stoppe die Musik\n' +
+                            '**!pause** - Musik pausieren\n' + 
+                            '**!resume** - Musik fortsetzen\n' +
+                            '**!play <Liedname>** - Ein Lied abspielen\n' +
+                            '**!skip** - Aktuelles Lied überspringen\n' +
+                            '**!queue** - Zeige die Warteschlange an\n' +
+                            '**!clear** - Leere die Warteschlange\n' +
+                            '**!shuffle** - Mische die Warteschlange\n' +
+                            '**!showall** - Zeige alle Lieder im `music`-Ordner an\n' +
+                            '**!export <Liedname>** - Exportiere ein Lied als Datei\n' +
+                            '**!current** - Zeige das aktuell gespielte Lied an\n' +
+                            '**!help** - Zeige diese Hilfe an', 0x2ecc71)] });
+                        break;
         }
 });
 
