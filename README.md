@@ -1,14 +1,17 @@
 # Einfacher Discord Musik-Bot
 
-Dies ist ein einfacher, mit `Node.js` und `discord.js` erstellter Discord-Bot, der Sprachkanälen beitreten und lokale Audiodateien aus einem Verzeichnis abspielen kann. Er verfügt über eine grundlegende Warteschlange (Queue) und Steuerungsbefehle.
+Dies ist ein einfacher, mit `Node.js` und `discord.js` erstellter Discord-Bot, der Sprachkanälen beitreten und lokale Audiodateien aus einem Verzeichnis abspielen kann. Er verfügt über eine grundlegende Warteschlange (Queue), Wiedergabesteuerung und weitere Befehle.
 
 ## Features
 
 - Beitritt zu und Verlassen von Sprachkanälen
 - Abspielen von lokalen `.mp3`-Dateien
-- Eine einfache Song-Warteschlange
+- Eine einfache Song-Warteschlange, die auch gemischt und geleert werden kann
 - Pausieren und Fortsetzen der Wiedergabe
 - Überspringen des aktuellen Songs
+- Automatisches Abspielen aller Songs aus dem Musik-Ordner
+- Exportieren von Songs direkt in den Chat
+- Anzeige aller verfügbaren und aktuell gespielten Lieder
 
 ## Voraussetzungen
 
@@ -26,21 +29,19 @@ Folge diesen Schritten, um den Bot auf deinem eigenen System zum Laufen zu bring
 2.  **Abhängigkeiten installieren:**
     Öffne ein Terminal in deinem Projektordner und führe den folgenden Befehl aus, um alle notwendigen Pakete zu installieren:
     ```bash
-    npm install discord.js @discordjs/voice dotenv ffmpeg-static libsodium-wrappers
+    npm install discord.js @discordjs/voice dotenv ffmpeg-static libsodium-wrappers @discordjs/opus
     ```
-    - `discord.js`: Die Hauptbibliothek für die Interaktion mit der Discord-API.
-    - `@discordjs/voice`: Für alle Sprach- und Audiofunktionen.
-    - `dotenv`: Zum Laden von geheimen Schlüsseln (dem Token) aus einer `.env`-Datei.
-    - `ffmpeg-static` & `libsodium-wrappers`: Notwendige externe Abhängigkeiten für die Audioverarbeitung und -verschlüsselung.
+    Dies installiert alle in der `package.json` aufgeführten Abhängigkeiten.
 
 3.  **`.env`-Datei erstellen:**
     Erstelle im Hauptverzeichnis deines Projekts eine Datei mit dem exakten Namen `.env` und füge deinen Bot-Token wie folgt ein:
     ```
     TOKEN=DEIN_GEHEIMER_DISCORD_BOT_TOKEN_HIER
     ```
+    Diese Datei wird von der Versionskontrolle ignoriert, wie in `.gitignore` festgelegt.
 
 4.  **Musik-Ordner anlegen:**
-    Erstelle im Hauptverzeichnis einen Ordner mit dem Namen `music`. Lege hier alle `.mp3`-Dateien ab, die der Bot abspielen soll. Stelle sicher, dass eine Datei namens `test.mp3` für den `!join`-Befehl vorhanden ist.
+    Erstelle im Hauptverzeichnis einen Ordner mit dem Namen `music`. Lege hier alle `.mp3`-Dateien ab, die der Bot abspielen soll. Dieser Ordner wird ebenfalls von Git ignoriert.
 
 ## Bot zum Server einladen
 
@@ -67,25 +68,50 @@ Wenn alles korrekt eingerichtet ist, sollte in der Konsole die Nachricht `Bot is
 
 Alle Befehle müssen mit einem Ausrufezeichen (`!`) beginnen.
 
--   **`!join`**
-    Lässt den Bot deinem aktuellen Sprachkanal beitreten. Nach dem Beitritt wird automatisch die Datei `test.mp3` abgespielt.
+`!help`
+Zeigt eine Hilfsnachricht mit allen verfügbaren Befehlen an.
 
--   **`!play <songname>`**
-    Spielt einen bestimmten Song aus dem `music`-Ordner ab. Wenn bereits ein Lied läuft, wird der angeforderte Song zur Warteschlange hinzugefügt. **Wichtig:** Der `<songname>` muss ohne die `.mp3`-Dateiendung angegeben werden.
-    *Beispiel:* `!play mein-lieblingslied`
+`!play <Liedname>`
+Spielt einen bestimmten Song aus dem `music`-Ordner ab. Wenn bereits ein Lied läuft, wird der angeforderte Song zur Warteschlange hinzugefügt. Der `<Liedname>` muss ohne die `.mp3`-Dateiendung angegeben werden.
+*Beispiel:* `!play mein lieblingslied`
 
--   **`!leave`**
-    Trennt die Verbindung des Bots zum Sprachkanal und leert die Warteschlange.
+`!all`
+Liest alle `.mp3`-Dateien aus dem `music`-Ordner, fügt sie zur Warteschlange hinzu und startet die Wiedergabe.
 
--   **`!pause`**
-    Pausiert die aktuelle Wiedergabe.
+`!pause`
+Pausiert die aktuelle Wiedergabe.
 
--   **`!resume`**
-    Setzt eine pausierte Wiedergabe fort.
+`!resume`
+Setzt eine pausierte Wiedergabe fort.
 
--   **`!skip`**
-    Überspringt den aktuellen Song. Ist ein weiterer Song in der Warteschlange, wird dieser gestartet.
+`!skip`
+Überspringt den aktuellen Song. Ist ein weiterer Song in der Warteschlange, wird dieser gestartet.
+
+`!leave`
+Trennt die Verbindung des Bots zum Sprachkanal und leert die Warteschlange.
+
+`!queue`
+Zeigt die aktuelle Song-Warteschlange in einer übersichtlichen Liste an.
+
+`!clear`
+Entfernt alle Songs aus der Warteschlange.
+
+`!shuffle`
+Mischt die Reihenfolge der Songs in der Warteschlange zufällig.
+
+`!current`
+Zeigt den Titel des aktuell laufenden Songs an.
+
+`!showall`
+Zeigt eine Liste aller verfügbaren `.mp3`-Dateien im `music`-Ordner an.
+
+`!export <Liedname|current>`
+Sendet die angegebene `.mp3`-Datei direkt in den Chat zum Herunterladen. Mit `current` kann der aktuell gespielte Song exportiert werden.
 
 ## Funktionsweise der Warteschlange
 
-Der Bot verwaltet eine einfache Liste (Warteschlange) von Songs. Wenn der `!play`-Befehl genutzt wird, während der Bot bereits abspielt, wird der neue Song ans Ende der Liste gehängt. Sobald ein Lied beendet ist, schaut der Bot automatisch nach, ob ein weiteres Lied in der Warteschlange wartet und spielt dieses ab. Ist die Warteschlange leer, sendet der Bot eine Nachricht und verlässt den Kanal nach 60 Sekunden automatisch.
+Der Bot verwaltet eine einfache Liste (Warteschlange) von Songs.
+- Mit `!play` oder `!all` werden Songs zur Warteschlange hinzugefügt.
+- Sobald ein Lied beendet ist, schaut der Bot automatisch nach, ob ein weiteres Lied in der Warteschlange wartet und spielt dieses ab.
+- Ist die Warteschlange leer, gibt der Bot eine Nachricht aus und verlässt den Kanal nach 60 Sekunden automatisch.
+- Mit `!shuffle` kann die Reihenfolge der Warteschlange gemischt und mit `!clear` komplett geleert werden.
