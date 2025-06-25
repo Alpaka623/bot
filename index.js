@@ -7,6 +7,7 @@ const { channel } = require('diagnostics_channel');
 const fs = require('fs').promises;
 const play = require('play-dl');
 const ytdl = require('@distube/ytdl-core');
+const { type } = require('os');
 
 
 const client = new Client({
@@ -222,7 +223,42 @@ client.on('messageCreate', message => {
                         } catch (error) {
                             try {
                                 const replyMessage = await message.reply({ embeds: [createStyledEmbed('Suche...', `Lokale Datei nicht gefunden. Suche auf YouTube nach: **${songQuery}**`)] });
-                                if(songQuery.startsWith('https://open.spotify.com')) {
+
+                                if (songQuery.startsWith('https://open.spotify.com/playlist/') || songQuery.startsWith('https://open.spotify.com/album/')) {
+                                    await replyMessage.edit({ embeds: [createStyledEmbed('Lade Playlist...', `Verarbeite die Spotify-Playlist. Das kann einen Moment dauern...`)] });
+                                    let playlist = await play.spotify(songQuery);
+                                    const videos = await playlist.all_tracks();
+                                    if (videos.length === 0) {
+                                        return replyMessage.edit({ embeds: [createStyledEmbed('Fehler', 'Konnte keine abspielbaren Lieder in dieser Playlist finden.', 0xe74c3c)] });
+                                    }
+
+                                    for (let i = 0; i < videos.length; i++) {
+                                        try {
+                                            song = await play.search(`${videos[i].name}`, {
+                                            limit: 1
+                                            });
+                                            videos[i].url = song[0].url;
+                                            console.log(`Gefundenes YouTube-Video: ${videos[i].name} - ${videos[i].url}`);
+                                        }
+                                        catch (error) {
+                                            console.error(`Fehler beim Suchen von ${videos[i].name}:`, error);
+                                            const channel = await client.channels.fetch(channelId);
+                                            channel.send({ embeds: [createStyledEmbed('Fehler', `Konnte **${videos[i].name}** nicht finden. Überspringe...`, 0xe74c3c)] });
+                                            continue;
+                                        }
+                                        
+                                    }
+
+                                    const songObjects = videos.map(video => ({
+                                        type: 'youtube',
+                                        title: video.name,
+                                        url: video.url
+                                    }));
+                                    
+                                    queue.push(...songObjects);
+                                    await replyMessage.edit({ embeds: [createStyledEmbed('Playlist geladen', `**${songObjects.length}** Lieder von Spotify wurden zur Warteschlange hinzugefügt.`)] });
+
+                                }else if(songQuery.startsWith('https://open.spotify.com')) {
                                     let sp_data = await play.spotify(songQuery);
         
                                     let searched = await play.search(`${sp_data.name}`, {

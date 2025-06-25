@@ -1,22 +1,27 @@
-// test-stream.js
+// test-playlist.js
+require('dotenv').config();
 const play = require('play-dl');
 
 (async () => {
     try {
-        // Wir nehmen wieder eine URL, die garantiert funktioniert
-        const testUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
-        console.log(`[STREAM TEST] Starte Test mit URL: ${testUrl}`);
+        await play.setToken({
+            spotify: {
+                client_id: process.env.SPOTIFY_CLIENT_ID,
+                client_secret: process.env.SPOTIFY_CLIENT_SECRET,
+                refresh_token: null, market: 'DE'
+            }
+        });
+        await play.refreshToken();
+        console.log('[TEST] Spotify-Authentifizierung erfolgreich.');
 
-        // Jetzt testen wir die stream() Funktion direkt
-        const stream = await play.stream(testUrl);
-
-        console.log('[SUCCESS] play.stream() war erfolgreich!');
-        console.log('Informationen zum erhaltenen Stream:');
-        console.log(`- Typ des Streams: ${stream.type}`);
-        console.log(`- Hat der Stream eine lesbare Komponente?: ${!!stream.stream}`);
+        const playlistUrl = 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M';
+        console.log(`[TEST] Rufe Playlist-Infos für ${playlistUrl} ab...`);
+        
+        const playlist = await play.spotify(playlistUrl);
+        console.log(typeof(playlist));
+        console.log(`[SUCCESS] Test erfolgreich! Playlist: ${playlist.name}`);
 
     } catch (error) {
-        console.error('[FAIL] Der isolierte Stream-Test ist fehlgeschlagen. Grund:');
-        console.error(error);
+        console.error('[FAIL] Der isolierte Playlist-Test ist fehlgeschlagen:', error);
     }
 })();
