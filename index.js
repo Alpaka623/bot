@@ -2,14 +2,10 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require('discord.js');
 const { joinVoiceChannel, getVoiceConnection, createAudioPlayer, createAudioResource, AudioPlayerStatus ,Events, StreamType } = require('@discordjs/voice');
 const { join } = require('path');
-const { time } = require('console');
-const { channel } = require('diagnostics_channel');
 const fs = require('fs').promises;
 const play = require('play-dl');
 const ytdl = require('@distube/ytdl-core');
-const { type } = require('os');
 const { YtDlp } = require('ytdlp-nodejs');
-const { url } = require('inspector');
 
 const ytdlp = new YtDlp({
   ffmpegPath: join(__dirname, 'bin')
@@ -197,7 +193,7 @@ client.on('messageCreate', message => {
         case '!resume': player.unpause();
                         break;
         case '!play':   (async () => {
-                        const songQuery = message.content.split(' ').slice(1).join(' ');
+                        let songQuery = message.content.split(' ').slice(1).join(' ');
                         if (!songQuery) {
                             return message.reply({ embeds: [createStyledEmbed('Fehler', 'Du musst einen Songnamen oder YouTube-Link angeben.', 0xe74c3c)] });
                         }
@@ -280,7 +276,22 @@ client.on('messageCreate', message => {
                                     
                                     await replyMessage.edit({ embeds: [createStyledEmbed('Zur Warteschlange hinzugefügt (YouTube)', `**${songObject.title}** wurde hinzugefügt.`)] });
                                     
-                                }else {
+                                }else if(songQuery.startsWith('https://youtu.be')) {
+                                    data = await play.video_basic_info(songQuery);
+                                    songQuery = data.video_details.title;
+                                    let searched = await play.search(`${songQuery}`, {
+                                        limit: 1
+                                    })
+                                    const songObject = {
+                                        type: 'youtube',
+                                        title: songQuery,
+                                        url:   searched[0].url
+                                    };
+                                    console.log("Gefundenes YouTube-Video:", songObject);
+                                    queue.push(songObject);
+                                    
+                                    await replyMessage.edit({ embeds: [createStyledEmbed('Zur Warteschlange hinzugefügt (YouTube)', `**${songObject.title}** wurde hinzugefügt.`)] });
+                                } else {
                                 const searchResults = await play.search(songQuery, { limit: 1, source: { youtube: 'video' } });
                                 if (searchResults.length === 0) {
                                     return replyMessage.edit({ embeds: [createStyledEmbed('Fehler', 'Ich konnte auf YouTube nichts finden.', 0xe74c3c)] });
@@ -403,11 +414,18 @@ client.on('messageCreate', message => {
                                 await fs.access(filePath)
                                 attachment = new AttachmentBuilder(filePath, { name: `${fileName}.mp3` });
                             } catch {
+                                if(songName.startsWith('https://open.spotify.com/')) {
+                                    let sp_data = await play.spotify(songName);
+                                    if(!sp_data) {
+                                        return message.reply({ embeds: [createStyledEmbed('Fehler', 'Konnte die Spotify-Playlist nicht finden.', 0xe74c3c)] });
+                                    }
+                                    songName = sp_data.name;
+                                }
                                 if(songName.startsWith('https://youtu.be')) {
                                     data = await play.video_basic_info(songName);
                                     songName = data.video_details.title;
-                                    console.log("Konvertierter Songname:", songName);
                                 }
+                                console.log("Neuer Songname:", songName);
                                 song = await play.search(`${songName}`, {
                                         limit: 1
                                     })
