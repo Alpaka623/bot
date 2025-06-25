@@ -8,6 +8,12 @@ const fs = require('fs').promises;
 const play = require('play-dl');
 const ytdl = require('@distube/ytdl-core');
 const { type } = require('os');
+const { YtDlp } = require('ytdlp-nodejs');
+const { url } = require('inspector');
+
+const ytdlp = new YtDlp({
+  ffmpegPath: join(__dirname, 'bin')
+});
 
 
 const client = new Client({
@@ -381,7 +387,9 @@ client.on('messageCreate', message => {
         case '!export': (async () => {
                             try {
                             let songName = message.content.split(' ').slice(1).join(' ');
-                            if(songName === 'current') songName = player.state.resource.metadata.title;
+                            if(songName === 'current') {
+                                songName = player.state.resource.metadata.title;
+                            }
                             console.log("Songname:", songName);
                             if (!songName) {
                                 return message.reply({ embeds: [createStyledEmbed('Fehler', 'Du musst einen Songnamen angeben.', 0xe74c3c)] });
@@ -389,20 +397,35 @@ client.on('messageCreate', message => {
 
                             const fileName = songName.toLowerCase().replaceAll(' ', '-');
                             const filePath = join(__dirname, 'music', `${fileName}.mp3`);
+                            let attachment;
 
-                            await fs.access(filePath);
-
-                            const attachment = new AttachmentBuilder(filePath, { name: `${fileName}.mp3` });
+                            try {
+                                await fs.access(filePath)
+                                attachment = new AttachmentBuilder(filePath, { name: `${fileName}.mp3` });
+                            } catch {
+                                song = await play.search(`${songName}`, {
+                                        limit: 1
+                                    })
+                                    console.log(song);
+                                let url = song[0].url;
+                                if(url === undefined) {
+                                    return message.reply({ embeds: [createStyledEmbed('Fehler', 'Konnte den Song nicht finden.', 0xe74c3c)] });
+                                }
+                                await downloadVideo(url);
+                                attachment = new AttachmentBuilder(join(__dirname, 'downloads', `${song[0].title}.mp3`), { name: `${song[0].title}.mp3` });
+                            }
 
                             await message.reply({
                                 files: [attachment]
                             });
+
 
                             } catch (error) {
                                 console.error("Fehler im !export-Befehl:", error);
                                 message.reply({ embeds: [createStyledEmbed('Fehler', 'Ich konnte diese Datei nicht finden. Stelle sicher, dass der Name korrekt ist.', 0xe74c3c)] });
                             }
                         })();
+                        clearDownloadsFolder();
                         break;
         case '!current': if (player.state.status === AudioPlayerStatus.Playing) {
                             const currentResource = player.state.resource;
@@ -430,6 +453,43 @@ client.on('messageCreate', message => {
         }
 });
 
+async function downloadVideo(url) {
+  try {
+    const output = await ytdlp.downloadAsync(
+      url,
+      {
+        onProgress: (progress) => {
+          console.log(progress);
+        },
+        output: "./downloads/%(title)s.%(ext)s",
+        format: {
+            filter: "audioonly",
+            type: "mp3",
+        },
+      }
+    );
+    console.log('Download completed:', output);
+  } catch (error) {
+    console.error('Error:', error);
+  }
+}
 
+async function clearDownloadsFolder() {
+  const downloadsDir = join(__dirname, 'downloads');
+  try {
+    const files = await fs.readdir(downloadsDir);
+
+    const unlinkPromises = files.map(file => {
+      const filePath = join(downloadsDir, file);
+      return fs.unlink(filePath);
+    });
+
+    await Promise.all(unlinkPromises);
+
+    console.log(`Downloads-Ordner erfolgreich geleert. ${files.length} Dateien gelöscht.`);
+  } catch (error) {
+    console.error("Fehler beim Leeren des Downloads-Ordners:", error);
+  }
+}
 
 client.login(process.env.TOKEN);
