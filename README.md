@@ -53,27 +53,7 @@ This is a Discord bot built with `Node.js` and `discord.js` that enables hybrid 
 ## Spotify Setup (One-Time Authorization)
 
 To reliably play Spotify playlists and albums, `play-dl` needs to be authorized with your Spotify account once. This is a more secure method than storing secret keys.
-
-1.  **Find the Authorization Script:**
-    The `play-dl` package includes an authorization script. You can find it inside your `node_modules` folder at this path: `node_modules/play-dl/dist/scripts/authorize.js`.
-
-2.  **Run the Script:**
-    Open a terminal in the **root directory of your project** and run the script using `node`:
-    ```bash
-    node node_modules/play-dl/dist/scripts/authorize.js
-    ```
-
-3.  **Follow the Instructions in the Terminal:**
-    - The script will ask for your **Spotify Client ID** and **Client Secret**. You can get these by creating a new app in your [Spotify for Developers Dashboard](https://developer.spotify.com/dashboard).
-    - It will also ask for a **Redirect URI**. You can use `http://127.0.0.1/` for this. Make sure to add this exact URI in your Spotify App's settings on the developer dashboard.
-    - The script will then generate a URL. Copy this URL and paste it into your web browser.
-    - Log in to Spotify and grant the permissions. You will be redirected to the URI you entered (e.g., `http://127.0.0.1/`).
-    - Copy the **entire URL** from your browser's address bar after being redirected. It will contain a `?code=...` parameter.
-    - Paste this full redirected URL back into the terminal.
-
-4.  **Result: The `.data` Folder:**
-    After a successful authorization, the script will automatically create a folder named `.data` in your project's root directory. This folder contains your secure refresh tokens.
-    **Do not delete this folder.** It is correctly listed in your `.gitignore` file to ensure these sensitive tokens are never uploaded to GitHub.
+Follow the authorization-instructions in the [play-dl-documentary](https://play-dl.github.io/modules.html).
 
 ## Starting the Bot
 
