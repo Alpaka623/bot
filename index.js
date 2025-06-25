@@ -1,11 +1,15 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, AttachmentBuilder } = require('discord.js');
-const { joinVoiceChannel, getVoiceConnection, createAudioPlayer, createAudioResource, AudioPlayerStatus ,Events, StreamType } = require('@discordjs/voice');
-const { join } = require('path');
+const { joinVoiceChannel, getVoiceConnection, createAudioPlayer, createAudioResource, AudioPlayerStatus ,Events, StreamType, setFFmpegPath  } = require('@discordjs/voice');
+const path = require('path');
+const { join } = path;
 const fs = require('fs').promises;
 const play = require('play-dl');
 const ytdl = require('@distube/ytdl-core');
 const { YtDlp } = require('ytdlp-nodejs');
+const ffmpeg = require('fluent-ffmpeg');
+
+process.env.PATH = `${join(__dirname, 'bin')}${path.delimiter}${process.env.PATH}`;
 
 const ytdlp = new YtDlp({
   ffmpegPath: join(__dirname, 'bin')
@@ -29,7 +33,7 @@ function createStyledEmbed(title, description, color = 0x3498db) {
     .setTimestamp()
 }
 
-let resource = createAudioResource(join(__dirname, 'music', 'test.mp3'));
+let is8DEnabled = false;
 
 const player = createAudioPlayer();
 
@@ -76,9 +80,11 @@ player.on(AudioPlayerStatus.Idle, async () => {
         console.error("Ungültiges 'undefined' Objekt in der Queue gefunden. Überspringe.");
         return player.emit(AudioPlayerStatus.Idle);
     }
+    
 
     try {
         let resource;
+        const ffmpegArgs = is8DEnabled ? ['-af', 'apulsator=hz=0.125:amount=0.7'] : [];
 
         if (nextSong.type === 'youtube') {
             if (!nextSong.url) {
@@ -89,20 +95,53 @@ player.on(AudioPlayerStatus.Idle, async () => {
                 filter: 'audioonly',
                 quality: 'highestaudio',
                 highWaterMark: 1 << 25,
+                ffmpeg_args: ffmpegArgs,
+                postProcesserArgs: ffmpegArgs
             });
-
-            resource = createAudioResource(stream, {
+            
+            if(is8DEnabled) {
+            const ffmpegProcess = ffmpeg(stream)
+            .addOption(ffmpegArgs)
+            .toFormat('mp3')
+            .on('error', (err) => {
+                console.error('FFmpeg error:', err.message);
+                stream.destroy(); 
+            });
+            resource = createAudioResource(ffmpegProcess, {
                 inputType: StreamType.Arbitrary,
                 metadata: { title: nextSong.title },
                 inlineVolume: true
             });
+            } else {
+                resource = createAudioResource(stream, {
+                    inputType: StreamType.Arbitrary,
+                    metadata: { title: nextSong.title },
+                    inlineVolume: true
+                });
+            }
 
         } else {
             const filePath = join(__dirname, 'music', `${nextSong.path}.mp3`);
-            resource = createAudioResource(filePath, {
-                metadata: { title: nextSong.title },
-                inlineVolume: true
-            });
+            if (is8DEnabled) {
+                const ffmpegCommand = ffmpeg(filePath)
+                .addOption(ffmpegArgs)
+                .toFormat('opus')
+                .on('error', (err) => {
+                    console.error('FFmpeg error:', err.message);
+                    console.error('FFmpeg stderr:', err.stderr);
+                });
+                const audioStream = ffmpegCommand.pipe();
+
+                resource = createAudioResource(audioStream, {
+                    metadata: { title: nextSong.title },
+                    inlineVolume: true,
+                });
+            }else {
+                resource = createAudioResource(filePath, {
+                    metadata: { title: nextSong.title },
+                    inlineVolume: true,
+                });
+            }
         }
 
         resource.volume.setVolume(0.4);
@@ -457,6 +496,16 @@ client.on('messageCreate', message => {
                             message.reply({ embeds: [createStyledEmbed('Aktuelles Lied', 'Es wird gerade keine Musik abgespielt.', 0xe74c3c)] });
                         }
                         break;
+        case '!8d':     is8DEnabled = !is8DEnabled;
+
+                        const statusText = is8DEnabled ? 'aktiviert' : 'deaktiviert';
+                        const embed = createStyledEmbed(
+                            '🔊 8D Audio Effekt',
+                            `Der 8D-Audio-Effekt wurde **${statusText}**. Die Änderung wird beim nächsten Lied wirksam.`,
+                            is8DEnabled ? 0x2ecc71 : 0xe74c3c
+                        );
+                        message.reply({ embeds: [embed] });
+                        break;
         case '!help':   message.reply({ embeds: [createStyledEmbed('Hilfe', 'Hier sind die verfügbaren Befehle:\n\n' +
                             '**!all** - Alle Lieder im `music`-Ordner abspielen\n' +
                             '**!leave** - Verlasse den Sprachkanal und stoppe die Musik\n' +
@@ -470,6 +519,7 @@ client.on('messageCreate', message => {
                             '**!showall** - Zeige alle Lieder im `music`-Ordner an\n' +
                             '**!export <Liedname>** - Exportiere ein Lied als Datei\n' +
                             '**!current** - Zeige das aktuell gespielte Lied an\n' +
+                            '**!8d** - Aktiviere/Deaktiviere den 8D-Audio-Effekt\n' +
                             '**!help** - Zeige diese Hilfe an', 0x2ecc71)] });
                         break;
         }
