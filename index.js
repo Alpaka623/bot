@@ -26,19 +26,6 @@ function createStyledEmbed(title, description, color = 0x3498db) {
     .setTimestamp()
 }
 
-const row = new ActionRowBuilder()
-    .addComponents(
-        new ButtonBuilder()
-            .setCustomId('queue_previous') // Eindeutige ID für den Listener
-            .setLabel('◀️ Zurück')
-            .setStyle(ButtonStyle.Primary), // Farbe des Knopfes
-            
-        new ButtonBuilder()
-            .setCustomId('queue_next')
-            .setLabel('Weiter ▶️')
-            .setStyle(ButtonStyle.Primary)
-    );
-
 let resource = createAudioResource(join(__dirname, 'music', 'test.mp3'));
 
 const player = createAudioPlayer();
@@ -107,7 +94,7 @@ player.on(AudioPlayerStatus.Idle, async () => {
                 inlineVolume: true
             });
 
-        } else { // Lokale Datei
+        } else {
             const filePath = join(__dirname, 'music', `${nextSong.path}.mp3`);
             resource = createAudioResource(filePath, {
                 metadata: { title: nextSong.title },
@@ -130,6 +117,11 @@ player.on(AudioPlayerStatus.Idle, async () => {
 client.on('messageCreate', message => {
     if (message.author.bot) return;
     if(!message.content.startsWith('!')) return;
+    (async () => {
+      if (play.is_expired()) {
+            await play.refreshToken();
+    }
+    })();
 
     channelId = message.channel.id;
 
@@ -213,7 +205,6 @@ client.on('messageCreate', message => {
                             }
                         };
 
-                        // --- Start der Suchlogik ---
                         const formattedFileName = songQuery.toLowerCase().replaceAll(' ', '-');
                         const localFilePath = join(__dirname, 'music', `${formattedFileName}.mp3`);
 
@@ -231,7 +222,23 @@ client.on('messageCreate', message => {
                         } catch (error) {
                             try {
                                 const replyMessage = await message.reply({ embeds: [createStyledEmbed('Suche...', `Lokale Datei nicht gefunden. Suche auf YouTube nach: **${songQuery}**`)] });
-                                
+                                if(songQuery.startsWith('https://open.spotify.com')) {
+                                    let sp_data = await play.spotify(songQuery);
+        
+                                    let searched = await play.search(`${sp_data.name}`, {
+                                        limit: 1
+                                    })
+                                    const songObject = {
+                                        type: 'youtube',
+                                        title: sp_data.name,
+                                        url:   searched[0].url
+                                    };
+                                    console.log("Gefundenes YouTube-Video:", songObject);
+                                    queue.push(songObject);
+                                    
+                                    await replyMessage.edit({ embeds: [createStyledEmbed('Zur Warteschlange hinzugefügt (YouTube)', `**${songObject.title}** wurde hinzugefügt.`)] });
+                                    
+                                }else {
                                 const searchResults = await play.search(songQuery, { limit: 1, source: { youtube: 'video' } });
                                 if (searchResults.length === 0) {
                                     return replyMessage.edit({ embeds: [createStyledEmbed('Fehler', 'Ich konnte auf YouTube nichts finden.', 0xe74c3c)] });
@@ -247,7 +254,7 @@ client.on('messageCreate', message => {
                                 queue.push(songObject);
                                 
                                 await replyMessage.edit({ embeds: [createStyledEmbed('Zur Warteschlange hinzugefügt (YouTube)', `**${songObject.title}** wurde hinzugefügt.`)] });
-
+                                }
                             } catch (searchError) {
                                 console.error("Fehler bei der YouTube-Suche:", searchError);
                                 await message.reply({ embeds: [createStyledEmbed('Fehler', 'Bei der YouTube-Suche ist ein Fehler aufgetreten.', 0xe74c3c)] });
@@ -368,53 +375,6 @@ client.on('messageCreate', message => {
                         } else {
                             message.reply({ embeds: [createStyledEmbed('Aktuelles Lied', 'Es wird gerade keine Musik abgespielt.', 0xe74c3c)] });
                         }
-                        break;
-        case '!testyt':
-                        // Nur zum Testen, wir halten es simpel.
-                        if (!message.member.voice.channel) {
-                            return message.reply('Bitte sei für diesen Test in einem Sprachkanal.');
-                        }
-
-                        (async () => {
-                            try {
-                                console.log("--- START TESTYT ---");
-                                const testUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'; // Eine feste, bekannte URL
-                                
-                                // 1. Verbindung herstellen
-                                const connection = joinVoiceChannel({
-                                    channelId: message.member.voice.channel.id,
-                                    guildId: message.guild.id,
-                                    adapterCreator: message.guild.voiceAdapterCreator,
-                                    selfDeaf: false
-                                });
-                                
-                                // 2. Stream von play-dl holen
-                                console.log(`Versuche, Stream für feste URL zu holen: ${testUrl}`);
-                                const stream = await play.stream(testUrl);
-                                console.log("Stream-Objekt von play-dl erhalten:", stream);
-
-                                // 3. Ressource erstellen
-                                const resource = createAudioResource(stream.stream, {
-                                    inputType: stream.type
-                                });
-                                console.log("AudioResource erfolgreich erstellt.");
-
-                                // 4. Player erstellen und subscriben
-                                const player = createAudioPlayer();
-                                connection.subscribe(player);
-                                console.log("Player subscribed.");
-
-                                // 5. Abspielen
-                                player.play(resource);
-                                console.log("player.play() aufgerufen. Wiedergabe sollte starten.");
-
-                                await message.reply('Teste Wiedergabe mit einer festen URL...');
-
-                            } catch (error) {
-                                console.error("--- FEHLER IM TESTYT BEFEHL ---", error);
-                                message.reply(`Der isolierte Test ist fehlgeschlagen. Fehler: ${error.message}`);
-                            }
-                        })();
                         break;
         case '!help':   message.reply({ embeds: [createStyledEmbed('Hilfe', 'Hier sind die verfügbaren Befehle:\n\n' +
                             '**!all** - Alle Lieder im `music`-Ordner abspielen\n' +

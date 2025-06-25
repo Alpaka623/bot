@@ -3,6 +3,7 @@
 # dependencies
 /node_modules
 /music
+/.data
 /.pnp
 .pnp.js
 
