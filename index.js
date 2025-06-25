@@ -403,10 +403,14 @@ client.on('messageCreate', message => {
                                 await fs.access(filePath)
                                 attachment = new AttachmentBuilder(filePath, { name: `${fileName}.mp3` });
                             } catch {
+                                if(songName.startsWith('https://youtu.be')) {
+                                    data = await play.video_basic_info(songName);
+                                    songName = data.video_details.title;
+                                    console.log("Konvertierter Songname:", songName);
+                                }
                                 song = await play.search(`${songName}`, {
                                         limit: 1
                                     })
-                                    console.log(song);
                                 let url = song[0].url;
                                 if(url === undefined) {
                                     return message.reply({ embeds: [createStyledEmbed('Fehler', 'Konnte den Song nicht finden.', 0xe74c3c)] });
